@@ -21,7 +21,8 @@ class User(Base):
     )
 
     # creates one to many relation
-    posts: Mapped[list[Post]] = relationship(back_populates="author")
+    posts: Mapped[list[Post]] = relationship(back_populates="author", 
+                                             cascade="all, delete-orphan")
 
     @property
     def image_path(self) -> str:
