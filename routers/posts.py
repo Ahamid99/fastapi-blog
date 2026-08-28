@@ -14,7 +14,10 @@ router = APIRouter()
 # All posts Endpoint API
 @router.get("", response_model=list[PostResponse])
 async def get_posts(db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)))
+    result = await db.execute(select(models.Post)
+                              .options(selectinload(models.Post.author))
+                              .order_by(models.Post.date_posted.desc())
+                              )
     return result.scalars().all()
 
 # returning a single post API
