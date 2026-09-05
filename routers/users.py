@@ -1,17 +1,13 @@
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
+from PIL import UnidentifiedImageError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
-from PIL import UnidentifiedImageError
-
 from starlette.concurrency import run_in_threadpool
-from image_utils import delete_profile_image, process_profile_image
-
 
 import models
 from auth import (
@@ -22,21 +18,32 @@ from auth import (
 )
 from config import settings
 from database import get_db
-from schemas import PostResponse, Token, UserCreate, UserPrivate, UserPublic, UserUpdate
+from image_utils import delete_profile_image, process_profile_image
+from schemas import (
+    PaginatedPostsResponse,
+    PostResponse,
+    Token,
+    UserCreate,
+    UserPrivate,
+    UserPublic,
+    UserUpdate,
+)
 
 # create router instance
 router = APIRouter()
 
+
 # creating user
 @router.post(
-        "", # inside quotes here are postfix on top of  what is defined in mian.py
-        response_model= UserPrivate,
-        status_code=status.HTTP_201_CREATED
+    "",  # inside quotes here are postfix on top of  what is defined in mian.py
+    response_model=UserPrivate,
+    status_code=status.HTTP_201_CREATED,
 )
-async def create_user(user: UserCreate, db: Annotated[AsyncSession, Depends(get_db)] ):
+async def create_user(user: UserCreate, db: Annotated[AsyncSession, Depends(get_db)]):
     result = await db.execute(
-        select(models.User)
-        .where(func.lower(models.User.username) == user.username.lower())
+        select(models.User).where(
+            func.lower(models.User.username) == user.username.lower()
+        )
     )
     # grabs the first user if existing else None
     existing_user = result.scalars().first()
@@ -49,18 +56,16 @@ async def create_user(user: UserCreate, db: Annotated[AsyncSession, Depends(get_
 
     # check if email is duplicate
     result = await db.execute(
-        select(models.User)
-        .where(func.lower(models.User.email) == user.email.lower()),
+        select(models.User).where(func.lower(models.User.email) == user.email.lower()),
     )
     existing_email = result.scalars().first()
     if existing_email:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already exists."
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists."
         )
 
     new_user = models.User(
-        username = user.username,
+        username=user.username,
         email=user.email.lower(),
         password_hash=hash_password(user.password),
     )
@@ -68,9 +73,9 @@ async def create_user(user: UserCreate, db: Annotated[AsyncSession, Depends(get_
     # add to db
     db.add(new_user)
     await db.commit()
-    await db.refresh(new_user) #reloads the object from the db
+    await db.refresh(new_user)  # reloads the object from the db
 
-    return new_user # pydantic will automatically convet it to UserResponse Obj
+    return new_user  # pydantic will automatically convet it to UserResponse Obj
 
 
 ## login_for_access_token
@@ -108,8 +113,7 @@ async def login_for_access_token(
 
 ## get_current_user
 @router.get("/me", response_model=UserPrivate)
-async def get_current_user(current_user: CurrentUser
-):
+async def get_current_user(current_user: CurrentUser):
     """Get the currently authenticated user."""
     return current_user
 
@@ -121,37 +125,42 @@ async def get_user(user_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
     user = result.scalars().first()
     if user:
         return user
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                        detail="User not found")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
 
 # UPDATING User endpoints
 @router.patch("/{user_id}", response_model=UserPrivate)
-async def update_user(user_id: int,
-                     user_update: UserUpdate,
-                     current_user: CurrentUser,
-                     db: Annotated[AsyncSession, Depends(get_db)]):
+async def update_user(
+    user_id: int,
+    user_update: UserUpdate,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
 
-    # ownership check 
+    # ownership check
     if user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this User.")
-    
+            detail="Not authorized to update this User.",
+        )
+
     # check if user exists
-    result = await db.execute(
-        select(models.User).where(models.User.id == user_id)
-    )
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
     user = result.scalars().first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                        detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     # now check if updated username is not null and not the same
-    if user_update.username is not None and user_update.username.lower() != user.username.lower():
-        result = await db.execute( # now check it against DB
-            select(models.User)
-            .where(func.lower(models.User.username) == user_update.username.lower()),
+    if (
+        user_update.username is not None
+        and user_update.username.lower() != user.username.lower()
+    ):
+        result = await db.execute(  # now check it against DB
+            select(models.User).where(
+                func.lower(models.User.username) == user_update.username.lower()
+            ),
         )
         existing_user = result.scalars().first()
         if existing_user:
@@ -159,11 +168,15 @@ async def update_user(user_id: int,
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Username already exists",
             )
-    #Email
-    if user_update.email is not None and user_update.email.lower() != user.email.lower():
+    # Email
+    if (
+        user_update.email is not None
+        and user_update.email.lower() != user.email.lower()
+    ):
         result = await db.execute(
-            select(models.User)
-            .where(func.lower(models.User.email) == user_update.email.lower()),
+            select(models.User).where(
+                func.lower(models.User.email) == user_update.email.lower()
+            ),
         )
         existing_email = result.scalars().first()
         if existing_email:
@@ -171,7 +184,7 @@ async def update_user(user_id: int,
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered",
             )
-        
+
     # update only the fields that are provided
     if user_update.username is not None:
         user.username = user_update.username
@@ -182,17 +195,21 @@ async def update_user(user_id: int,
     await db.refresh(user)
     return user
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_id: int,
-                      current_user: CurrentUser,
-                      db: Annotated[AsyncSession, Depends(get_db)]):
 
-    # ownership check 
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: int,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+
+    # ownership check
     if user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to Delete this User.")
-    
+            detail="Not authorized to Delete this User.",
+        )
+
     result = await db.execute(select(models.User).where(models.User.id == user_id))
     user = result.scalars().first()
     if not user:
@@ -210,32 +227,56 @@ async def delete_user(user_id: int,
     if old_filename:
         delete_profile_image(old_filename)
 
+
 # get posts by user
-@router.get("/{user_id}/posts", response_model=list[PostResponse])
-async def get_user_posts(user_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
-    # check if the user Exists first
-    result = await db.execute(
-        select(models.User)
-        .where(models.User.id == user_id)
-    )
+@router.get("/{user_id}/posts", response_model=PaginatedPostsResponse)
+async def get_user_posts(
+    user_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = settings.posts_per_page,
+):
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
     user = result.scalars().first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
 
-    result = await db.execute(select(models.Post)
-                              .options(selectinload(models.Post.author))
-                              .where(models.Post.user_id == user_id)
-                              .order_by(models.Post.date_posted.desc())
-                              )
+    count_result = await db.execute(
+        select(func.count())
+        .select_from(models.Post)
+        .where(models.Post.user_id == user_id),
+    )
+    total = count_result.scalar() or 0
+
+    result = await db.execute(
+        select(models.Post)
+        .options(selectinload(models.Post.author))
+        .where(models.Post.user_id == user_id)
+        .order_by(models.Post.date_posted.desc())
+        .offset(skip)
+        .limit(limit),
+    )
     posts = result.scalars().all()
-    return posts
+
+    has_more = skip + len(posts) < total
+
+    return PaginatedPostsResponse(
+        posts=[PostResponse.model_validate(post) for post in posts],
+        total=total,
+        skip=skip,
+        limit=limit,
+        has_more=has_more,
+    )
+
 
 ## Upload Profile Picture Endpoint
 @router.patch("/{user_id}/picture", response_model=UserPrivate)
 async def upload_profile_picture(
     user_id: int,
-    file: UploadFile, #handles file upload from browser
+    file: UploadFile,  # handles file upload from browser
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
@@ -273,7 +314,6 @@ async def upload_profile_picture(
         delete_profile_image(old_filename)
 
     return current_user
-
 
 
 ## Delete Profile Picture Endpoint

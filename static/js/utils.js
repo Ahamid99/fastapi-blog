@@ -26,6 +26,7 @@ export function hideModal(modalId) {
 // XSS prevention for dynamic content insertion
 export function escapeHtml(text) {
   const div = document.createElement("div");
+  // treat user content as plain text for secuirty purposes.
   div.textContent = text;
   return div.innerHTML;
 }
