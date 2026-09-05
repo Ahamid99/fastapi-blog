@@ -78,7 +78,7 @@ async def post_page(request: Request, post_id: int,
 
 # Get posts by user HTML 
 @app.get("/users/{user_id}/posts", include_in_schema=False)
-async def user_posts_page(request: Request,
+async def user_posts(request: Request,
                            user_id: int, 
                            db: Annotated[AsyncSession, Depends(get_db)]):
     result = await db.execute(select(models.User)
@@ -116,6 +116,14 @@ async def register_page(request: Request):
         request,
         "register.html",
         {"title": "Register"},
+    )
+
+@app.get("/account", include_in_schema=False)
+async def account_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "account.html",
+        {"title": "Account"},
     )
 
 ## ERROR Handling
