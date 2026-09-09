@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -17,13 +19,26 @@ password_hash = PasswordHash.recommended()
 # extracts token from authorization header
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/users/token")
 
+
 def hash_password(password: str) -> str:
-    """ Hashes password """
+    """Hashes password"""
     return password_hash.hash(password)
 
+
+# SHA256 is slower hash than argon,
+# but se use it for passwords becuase they are predictable and short.
+# this provides better security at cost of speed.
+def hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """ Verifies password by comparing plain password with hashed. """
+    """Verifies password by comparing plain password with hashed."""
     return password_hash.verify(plain_password, hashed_password)
+
+
+def generate_reset_token() -> str:
+    return secrets.token_urlsafe(32)
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
@@ -37,11 +52,12 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
         )
     to_encode.update({"exp": expire})
     encode_jwt = jwt.encode(
-        to_encode, 
+        to_encode,
         settings.secret_key.get_secret_value(),
         algorithm=settings.algorithm,
     )
     return encode_jwt
+
 
 ## verify_access_token
 def verify_access_token(token: str) -> str | None:
@@ -57,6 +73,7 @@ def verify_access_token(token: str) -> str | None:
         return None
     else:
         return payload.get("sub")
+
 
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],

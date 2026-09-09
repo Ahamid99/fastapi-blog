@@ -27,3 +27,4 @@ build-backend = "uv_build"
 
 [tool.ruff.lint]
 extend-select = ["ARG"]   # ARG001 = unused function argument, ARG002 = unused method argument
+unfixable = ["F401"]      # report unused imports, but never auto-remove them
