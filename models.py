@@ -58,7 +58,11 @@ class Post(Base):
     # many to one relashionship --> post.author
     author: Mapped[User] = relationship(back_populates="posts")
 
-    ## PasswordResetToken model
+    # likes field, server_default will add 0 likes to existing posts in db.
+    likes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+## PasswordResetToken model
 
 
 class PasswordResetToken(Base):
