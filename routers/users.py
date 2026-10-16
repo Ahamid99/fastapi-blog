@@ -1,6 +1,8 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
+from botocore.exceptions import ClientError
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -30,7 +32,11 @@ from auth import (
 from config import settings
 from database import get_db
 from email_utils import send_password_reset_email
-from image_utils import delete_profile_image, process_profile_image
+from image_utils import (
+    delete_profile_image,
+    process_profile_image,
+    upload_profile_image,
+)
 from schemas import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -46,6 +52,7 @@ from schemas import (
 
 # create router instance
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # creating user
@@ -221,7 +228,7 @@ async def reset_password(
         )
 
     user.password_hash = hash_password(request_data.new_password)
-    # delte all existing tokens for this user
+    # delete all existing tokens for this user
     await db.execute(
         sql_delete(models.PasswordResetToken).where(
             models.PasswordResetToken.user_id == user.id,
@@ -366,7 +373,7 @@ async def delete_user(
     await db.commit()
 
     if old_filename:
-        delete_profile_image(old_filename)
+        await delete_profile_image(old_filename)
 
 
 # get posts by user
@@ -438,11 +445,22 @@ async def upload_profile_picture(
     try:
         # becuase image processing is CPU bound, we throw it into a threadpool
         # so we can still maintain asycronous functionality
-        new_filename = await run_in_threadpool(process_profile_image, content)
+        processed_bytes, new_filename = await run_in_threadpool(
+            process_profile_image, content
+        )
     except UnidentifiedImageError as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid image file. Please upload a valid image (JPEG, PNG, GIF, WebP).",
+        ) from err
+
+    # Upload to S3 (also runs in threadpool via async wrapper)
+    try:
+        await upload_profile_image(processed_bytes, new_filename)
+    except ClientError as err:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload image. Please try again.",
         ) from err
 
     old_filename = current_user.image_file
@@ -452,7 +470,10 @@ async def upload_profile_picture(
     await db.refresh(current_user)
 
     if old_filename:
-        delete_profile_image(old_filename)
+        try:
+            await delete_profile_image(old_filename)
+        except Exception:
+            logger.exception("Failed to delete old profile image %s", old_filename)
 
     return current_user
 
@@ -482,6 +503,9 @@ async def delete_user_picture(
     await db.commit()
     await db.refresh(current_user)
 
-    delete_profile_image(old_filename)
+    try:
+        await delete_profile_image(old_filename)
+    except Exception:
+        logger.exception("Failed to delete profile image %s", old_filename)
 
     return current_user

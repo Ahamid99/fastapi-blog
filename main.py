@@ -33,7 +33,7 @@ app = FastAPI(lifespan=lifespan)
 
 ## mouting drives for media and static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
-app.mount("/media", StaticFiles(directory="media"), name="media")
+# app.mount("/media", StaticFiles(directory="media"), name="media")
 
 templates = Jinja2Templates(directory="templates")
 
